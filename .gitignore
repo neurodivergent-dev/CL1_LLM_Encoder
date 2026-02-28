@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+*.h5
+*.hdf5
+experiment_data/
+models/
+*.gguf
+.DS_Store
+*.log
