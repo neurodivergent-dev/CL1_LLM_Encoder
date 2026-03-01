@@ -722,11 +722,19 @@ class Phase(Enum):
 class TerraformingExperiment:
     """Main terraforming experiment controller.
 
-    Duty cycle per cycle:
-      1. Warmup (30 min): sweep channels, build responsiveness map
-      2. Training (3 hours): closed-loop token generation with doom feedback
-      3. Assessment (30 min): pure measurement without feedback
-      4. Rest (2 hours): no stimulation, pre/post C-Score
+    Polyphasic duty cycle per cycle (v2 — spaced training):
+      1. Warmup (15 min): sweep channels, build responsiveness map
+      2. Training blocks (3x 30-min blocks with 30-min meso-rests between)
+         - Micro-rests: 60s silence every 10 rounds within each block
+         - Meso-rests: 30 min between blocks with C-Score probes every 5 min
+      3. Assessment (15 min): pure measurement without feedback
+      4. Macro-rest (2 hours): no stimulation, C-Score probes at 0/30/60/90/120 min
+
+    Evidence basis:
+      - Spaced training >> massed for structural plasticity (J Neurosci 37:4992)
+      - CREB-dependent consolidation needs 30-60 min intervals
+      - CL1 cycle 1 showed fatigue (rho=-0.19) after 3h continuous training
+      - DishBrain: 4s ON/4s OFF duty cycling for aversive stimulation
     """
 
     def __init__(
@@ -739,6 +747,7 @@ class TerraformingExperiment:
         seed: int = 42,
         output_dir: str = "experiment_data",
         fast_mode: bool = False,
+        polyphasic: bool = True,
     ):
         self.substrate = substrate
         self.model_path = model_path
@@ -748,6 +757,7 @@ class TerraformingExperiment:
         self.seed = seed
         self.output_dir = output_dir
         self.fast = fast_mode
+        self.polyphasic = polyphasic
 
         os.makedirs(output_dir, exist_ok=True)
         self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -760,11 +770,25 @@ class TerraformingExperiment:
             self.training_duration = 15 * 60    # 15 min
             self.assess_duration = 5 * 60       # 5 min
             self.rest_duration = 2 * 60         # 2 min
+            # Polyphasic fast mode
+            self.n_training_blocks = 3
+            self.block_duration = 5 * 60        # 5 min per block
+            self.meso_rest_duration = 2 * 60    # 2 min between blocks
+            self.micro_rest_interval = 5        # every 5 rounds
+            self.micro_rest_duration = 15       # 15 sec
+            self.consolidation_probe_interval = 60  # every 60 sec during rest
         else:
-            self.warmup_duration = 30 * 60      # 30 min
-            self.training_duration = 3 * 3600   # 3 hours
-            self.assess_duration = 30 * 60      # 30 min
-            self.rest_duration = 2 * 3600       # 2 hours
+            self.warmup_duration = 15 * 60      # 15 min (shortened from 30)
+            self.training_duration = 3 * 30 * 60  # 3 blocks × 30 min = 90 min total training
+            self.assess_duration = 15 * 60      # 15 min
+            self.rest_duration = 2 * 3600       # 2 hours macro-rest
+            # Polyphasic full mode
+            self.n_training_blocks = 3
+            self.block_duration = 30 * 60       # 30 min per block
+            self.meso_rest_duration = 30 * 60   # 30 min between blocks
+            self.micro_rest_interval = 10       # every 10 rounds
+            self.micro_rest_duration = 60       # 60 sec
+            self.consolidation_probe_interval = 5 * 60  # every 5 min during rest
 
         self._rng = np.random.default_rng(seed)
         self.fb_cfg = FeedbackConfig()
@@ -1035,9 +1059,124 @@ class TerraformingExperiment:
                if isinstance(v, (int, float))},
         }
 
+    def _consolidation_probes(self, grp: h5py.Group, duration: float, label: str) -> List[float]:
+        """Run C-Score probes during a rest period to track offline consolidation."""
+        probes = []
+        t_start = time.time()
+        probe_idx = 0
+        while time.time() - t_start < duration:
+            cs = self._measure_cscore()
+            elapsed = time.time() - t_start
+            probes.append(cs)
+            self._log(f"  [{label}] probe {probe_idx}: C={cs:.4f} (t={elapsed/60:.1f}m)")
+            probe_idx += 1
+            remaining = duration - (time.time() - t_start)
+            sleep_time = min(self.consolidation_probe_interval, max(0, remaining))
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+        if probes:
+            grp.create_dataset(f'{label.lower()}_probes', data=np.array(probes, dtype=np.float32))
+            grp.attrs[f'{label.lower()}_mean_cscore'] = float(np.mean(probes))
+            grp.attrs[f'{label.lower()}_first_cscore'] = probes[0]
+            grp.attrs[f'{label.lower()}_last_cscore'] = probes[-1]
+        return probes
+
+    def _training_block(self, cycle_grp: h5py.Group, block_idx: int,
+                        round_offset: int) -> tuple:
+        """Run a single training block with micro-rests."""
+        self._log(f"  [BLOCK {block_idx}] Starting training block...")
+        t_start = time.time()
+        round_idx = round_offset
+        block_summaries = []
+        rounds_since_rest = 0
+
+        while time.time() - t_start < self.block_duration:
+            # Micro-rest: pause briefly every N rounds
+            if rounds_since_rest >= self.micro_rest_interval and self.polyphasic:
+                cs_before = self._measure_cscore()
+                self._log(f"  [MICRO-REST] {self.micro_rest_duration}s silence "
+                          f"(C={cs_before:.4f})...")
+                time.sleep(self.micro_rest_duration)
+                cs_after = self._measure_cscore()
+                self._log(f"  [MICRO-REST] Done (C={cs_after:.4f}, "
+                          f"delta={cs_after - cs_before:+.4f})")
+                rounds_since_rest = 0
+
+            prompt = PROMPTS[round_idx % len(PROMPTS)]
+            self._log(f"  [TRAIN R{round_idx}] Prompt: {prompt[:50]}...")
+
+            data = self._training_round(prompt, round_idx)
+            self.data_store.save_round(cycle_grp, round_idx, data)
+
+            self._log(f"  [TRAIN R{round_idx}] acc={data['accuracy']:.3f} "
+                      f"C={data['mean_cscore']:.4f} "
+                      f"templates={data.get('decoder_n_templates', 0)}")
+
+            block_summaries.append({
+                'round_idx': round_idx,
+                'block_idx': block_idx,
+                'accuracy': data['accuracy'],
+                'mean_cscore': data['mean_cscore'],
+                'n_tokens': data['n_tokens'],
+            })
+
+            # Run LLM-only control
+            llm_result = self._llm_control.run_round(prompt, self.tokens_per_round)
+            self.data_store.save_llm_control(cycle_grp, {
+                'round_idx': round_idx,
+                'mean_entropy': llm_result['mean_entropy'],
+                'n_tokens': llm_result['n_tokens'],
+            })
+
+            round_idx += 1
+            rounds_since_rest += 1
+
+        elapsed = (time.time() - t_start) / 60
+        n_rounds = round_idx - round_offset
+        self._log(f"  [BLOCK {block_idx}] Completed {n_rounds} rounds in {elapsed:.1f} min")
+        return block_summaries, round_idx
+
     def _training_phase(self, cycle_grp: h5py.Group, cycle_idx: int) -> List[Dict]:
-        """Run training rounds for the training duration."""
-        self._log("  [TRAINING] Starting doom-style closed-loop training...")
+        """Run polyphasic training: multiple blocks with meso-rests between."""
+        if not self.polyphasic:
+            return self._training_phase_monolithic(cycle_grp, cycle_idx)
+
+        self._log(f"  [TRAINING] Polyphasic: {self.n_training_blocks} blocks × "
+                  f"{self.block_duration/60:.0f}m, meso-rest {self.meso_rest_duration/60:.0f}m")
+        t_start = time.time()
+        all_summaries = []
+        round_offset = 0
+
+        for block_idx in range(self.n_training_blocks):
+            self._log(f"\n  {'─' * 40}")
+            self._log(f"  BLOCK {block_idx + 1}/{self.n_training_blocks}")
+            self._log(f"  {'─' * 40}")
+
+            # Training block
+            block_summaries, round_offset = self._training_block(
+                cycle_grp, block_idx, round_offset)
+            all_summaries.extend(block_summaries)
+
+            # Meso-rest between blocks (not after last block)
+            if block_idx < self.n_training_blocks - 1:
+                meso_grp = cycle_grp.create_group(f'meso_rest_{block_idx:03d}')
+                self._log(f"  [MESO-REST] {self.meso_rest_duration/60:.0f} min "
+                          f"consolidation period with C-Score probes...")
+                probes = self._consolidation_probes(
+                    meso_grp, self.meso_rest_duration, 'MESO_REST')
+                if probes:
+                    self._log(f"  [MESO-REST] Done: first={probes[0]:.4f}, "
+                              f"last={probes[-1]:.4f}, "
+                              f"delta={probes[-1]-probes[0]:+.4f}")
+
+        elapsed = (time.time() - t_start) / 60
+        self._log(f"  [TRAINING] Completed {round_offset} rounds in {elapsed:.1f} min "
+                  f"({self.n_training_blocks} blocks)")
+        return all_summaries
+
+    def _training_phase_monolithic(self, cycle_grp: h5py.Group, cycle_idx: int) -> List[Dict]:
+        """Original monolithic training (backwards compatibility)."""
+        self._log("  [TRAINING] Starting doom-style closed-loop training (monolithic)...")
         t_start = time.time()
         round_idx = 0
         round_summaries = []
@@ -1177,22 +1316,33 @@ class TerraformingExperiment:
         return result
 
     def _rest_phase(self, cycle_grp: h5py.Group) -> Dict:
-        """No stimulation. Measure pre/post rest C-Score for consolidation."""
-        self._log("  [REST] Measuring pre-rest C-Score...")
-        pre_cscore = self._measure_cscore()
+        """Macro-rest with periodic consolidation probes.
 
-        self._log(f"  [REST] Pre-rest C-Score={pre_cscore:.4f}, "
-                  f"sleeping {self.rest_duration / 60:.0f} min...")
-        time.sleep(self.rest_duration)
+        Instead of just pre/post measurement, probes C-Score throughout the rest
+        period to track the full consolidation trajectory. Evidence suggests
+        offline replay and synaptic homeostasis occur during rest periods.
+        """
+        rest_grp = cycle_grp.create_group('macro_rest')
+        self._log(f"  [MACRO-REST] {self.rest_duration/60:.0f} min with consolidation probes "
+                  f"every {self.consolidation_probe_interval/60:.0f} min...")
 
-        self._log("  [REST] Measuring post-rest C-Score...")
-        post_cscore = self._measure_cscore()
+        probes = self._consolidation_probes(
+            rest_grp, self.rest_duration, 'MACRO_REST')
 
-        self._log(f"  [REST] Pre={pre_cscore:.4f} → Post={post_cscore:.4f} "
-                  f"(Δ={post_cscore - pre_cscore:+.4f})")
+        pre = probes[0] if probes else 0.0
+        post = probes[-1] if probes else 0.0
 
-        self.data_store.save_rest_boundary(cycle_grp, pre_cscore, post_cscore)
-        return {'pre_cscore': pre_cscore, 'post_cscore': post_cscore}
+        self._log(f"  [MACRO-REST] Pre={pre:.4f} → Post={post:.4f} "
+                  f"(Δ={post - pre:+.4f})")
+
+        # Also save in legacy format for backwards compatibility with analysis
+        self.data_store.save_rest_boundary(cycle_grp, pre, post)
+        return {
+            'pre_cscore': pre,
+            'post_cscore': post,
+            'probes': probes,
+            'n_probes': len(probes),
+        }
 
     def run(self):
         """Run the full terraforming experiment."""
@@ -1203,13 +1353,22 @@ class TerraformingExperiment:
                        self.assess_duration + self.rest_duration) / 3600
 
         self._log("=" * 78)
-        self._log("  CL1 TERRAFORMING EXPERIMENT — DOOM-STYLE FEEDBACK")
+        mode = "POLYPHASIC" if self.polyphasic else "MONOLITHIC"
+        self._log(f"  CL1 TERRAFORMING EXPERIMENT — {mode}")
         self._log(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         self._log("=" * 78)
         self._log(f"  Substrate:      {type(self.substrate).__name__}")
         self._log(f"  Cycles:         {self.n_cycles} × {cycle_hours:.1f}h")
         self._log(f"  Warmup:         {self.warmup_duration / 60:.0f} min")
-        self._log(f"  Training:       {self.training_duration / 60:.0f} min")
+        if self.polyphasic:
+            self._log(f"  Training:       {self.n_training_blocks} blocks × "
+                      f"{self.block_duration/60:.0f}m = "
+                      f"{self.n_training_blocks * self.block_duration / 60:.0f}m total")
+            self._log(f"  Meso-rests:     {self.meso_rest_duration / 60:.0f} min between blocks")
+            self._log(f"  Micro-rests:    {self.micro_rest_duration}s every "
+                      f"{self.micro_rest_interval} rounds")
+        else:
+            self._log(f"  Training:       {self.training_duration / 60:.0f} min (monolithic)")
         self._log(f"  Assessment:     {self.assess_duration / 60:.0f} min")
         self._log(f"  Rest:           {self.rest_duration / 60:.0f} min")
         self._log(f"  Tokens/round:   {self.tokens_per_round}")
@@ -1228,6 +1387,13 @@ class TerraformingExperiment:
         self.data_store.f.attrs['tokens_per_round'] = self.tokens_per_round
         self.data_store.f.attrs['fast_mode'] = self.fast
         self.data_store.f.attrs['seed'] = self.seed
+        self.data_store.f.attrs['polyphasic'] = self.polyphasic
+        if self.polyphasic:
+            self.data_store.f.attrs['n_training_blocks'] = self.n_training_blocks
+            self.data_store.f.attrs['block_duration'] = self.block_duration
+            self.data_store.f.attrs['meso_rest_duration'] = self.meso_rest_duration
+            self.data_store.f.attrs['micro_rest_interval'] = self.micro_rest_interval
+            self.data_store.f.attrs['micro_rest_duration'] = self.micro_rest_duration
         self.data_store.f.attrs['channel_layout'] = json.dumps({
             'sensory': ChannelLayout.SENSORY,
             'motor': ChannelLayout.MOTOR,
@@ -1638,6 +1804,8 @@ def main():
                         help='Random seed (default: 42)')
     parser.add_argument('--output-dir', type=str, default='experiment_data',
                         help='Output directory (default: experiment_data)')
+    parser.add_argument('--monolithic', action='store_true',
+                        help='Use original monolithic training (no polyphasic blocks)')
 
     args = parser.parse_args()
 
@@ -1695,6 +1863,7 @@ def main():
         seed=args.seed,
         output_dir=args.output_dir,
         fast_mode=fast,
+        polyphasic=not args.monolithic,
     )
 
     try:
