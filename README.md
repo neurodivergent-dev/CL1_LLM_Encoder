@@ -387,10 +387,10 @@ If you use this software in your research, please cite:
 ```bibtex
 @software{cl1_llm_encoder2026,
   title = {CL1 LLM Encoder: Neural Token Voting with Consciousness Measurement},
-  author = {Antekythera Research},
+  author = {4R7I5T},
   year = {2026},
   version = {1.0.0},
-  url = {https://github.com/antekythera/CL1_LLM_Encoder},
+  url = {https://github.com/4R7I5T/CL1_LLM_Encoder},
 }
 ```
 
@@ -410,4 +410,4 @@ MIT License — see [LICENSE](LICENSE) for details.
 
 ---
 
-**Antekythera Research** | 2026
+**forked from [4R7I5T/CL1_LLM_Encoder](https://github.com/4R7I5T/CL1_LLM_Encoder)** | 2026
