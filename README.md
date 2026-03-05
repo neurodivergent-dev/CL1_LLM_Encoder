@@ -212,6 +212,31 @@ See [`SCIENTIFIC_RESULTS.md`](SCIENTIFIC_RESULTS.md) and [`SCIENTIFIC_CONCLUSION
 
 ---
 
+## The Scale Wall: Why 1000 → 100,000 Neurons Matters
+
+Current experiments use **1,000 neurons** with ~2% connectivity (~20 connections/neuron).
+This is **architecturally insufficient** for attractor dynamics — not a parameter tuning problem,
+but a **network topology threshold**.
+
+| Scale | Neurons | Connections/Neuron | Attractor Capacity |
+|-------|---------|-------------------|-------------------|
+| **Current** | 1,000 | ~20 | ❌ Zero (Exp 11-12 null results) |
+| Cortical column | 10,000-100,000 | ~10,000 | ✅ Rich attractor landscape |
+| Human brain | 86 billion | ~7,000 | ✅ Conscious cognition |
+
+**Why scale is not just a number:**
+
+- **Recurrent feedback loops** require sufficient fan-out (N × p² >> 1)
+- **Pattern completion** needs dense associative memory (Hopfield capacity ≈ 0.14N)
+- **Integration-differentiation balance** (Φ maximization) requires critical mass
+- **Homeostatic stability** emerges at population scale, not 1,000 neurons
+
+**Prediction:** Phase transition in behavioral STDP expression when crossing
+**~10,000 neurons with ≥5% connectivity**. This is a network topology threshold,
+not gradual improvement.
+
+---
+
 ## Data Output
 
 Experiments save data to HDF5 format:
@@ -288,6 +313,17 @@ text, records, summary = engine.generate(
     max_tokens=25,
 )
 ```
+
+> **⚠️ Important: C-Score Unreliability on CL1 Hardware**
+>
+> The CL1 substrate returns only **aggregate spike counts per channel**. The temporal spike matrix used for consciousness metrics is **synthetically reconstructed** by randomly distributing spike counts across time bins (see `cl1_cloud_substrate.py:296-304`).
+>
+> **Implications:**
+> - **SRC (count-based)** — ✅ Fully reliable
+> - **C-Score, LZC, Granger causality** — ⚠️ Partially artifactual (reflect random temporal assignments)
+> - **Transfer entropy, temporal depth** — ⚠️ Computed on synthetic data
+>
+> For valid consciousness metrics, use the **Izhikevich simulator** which tracks real spike timing.
 
 ---
 
