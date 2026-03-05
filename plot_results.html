@@ -1,0 +1,1173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CL1 LLM Encoder - Experiment Results Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/h5wasm@0.5.5/dist/h5wasm.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-card: #21262d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent: #58a6ff;
+            --success: #3fb950;
+            --warning: #d29922;
+            --danger: #f85149;
+            --border: #30363d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+
+        header {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .file-input-section {
+            background: var(--bg-card);
+            border: 2px dashed var(--border);
+            border-radius: 12px;
+            padding: 32px;
+            text-align: center;
+            margin-bottom: 24px;
+            transition: border-color 0.3s;
+        }
+
+        .file-input-section.dragover {
+            border-color: var(--accent);
+            background: rgba(88, 166, 255, 0.1);
+        }
+
+        .file-input-section input[type="file"] {
+            display: none;
+        }
+
+        .file-input-section label {
+            display: inline-block;
+            padding: 12px 24px;
+            background: var(--accent);
+            color: var(--bg-primary);
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: opacity 0.2s;
+        }
+
+        .file-input-section label:hover {
+            opacity: 0.9;
+        }
+
+        .file-info {
+            margin-top: 16px;
+            color: var(--text-secondary);
+            font-size: 14px;
+        }
+
+        .file-name {
+            color: var(--success);
+            font-weight: 500;
+        }
+
+        .dashboard {
+            display: none;
+            grid-gap: 24px;
+        }
+
+        .dashboard.active {
+            display: grid;
+        }
+
+        .metrics-overview {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .metric-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .metric-label {
+            color: var(--text-secondary);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .metric-value {
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--accent);
+        }
+
+        .metric-delta {
+            font-size: 14px;
+            margin-top: 8px;
+        }
+
+        .metric-delta.positive { color: var(--success); }
+        .metric-delta.negative { color: var(--danger); }
+
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 24px;
+        }
+
+        .chart-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .chart-card.full-width {
+            grid-column: 1 / -1;
+        }
+
+        .chart-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+        }
+
+        .chart-container {
+            height: 400px;
+        }
+
+        .condition-legend {
+            display: flex;
+            gap: 24px;
+            justify-content: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+        }
+
+        .stats-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        .stats-table th,
+        .stats-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .stats-table th {
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 12px;
+            text-transform: uppercase;
+        }
+
+        .stats-table td {
+            font-family: 'SF Mono', Monaco, monospace;
+            font-size: 14px;
+        }
+
+        .significance {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .significance.sig {
+            background: rgba(63, 185, 80, 0.2);
+            color: var(--success);
+        }
+
+        .significance.ns {
+            background: rgba(139, 148, 158, 0.2);
+            color: var(--text-secondary);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 12px;
+        }
+
+        .tab {
+            padding: 8px 16px;
+            background: transparent;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .tab.active {
+            background: var(--accent);
+            color: var(--bg-primary);
+            border-color: var(--accent);
+        }
+
+        .tab:hover:not(.active) {
+            background: var(--bg-card);
+            color: var(--text-primary);
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 48px;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            width: 48px;
+            height: 48px;
+            border: 4px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 16px;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: rgba(248, 81, 73, 0.1);
+            border: 1px solid var(--danger);
+            color: var(--danger);
+            padding: 16px;
+            border-radius: 8px;
+            margin-top: 16px;
+            display: none;
+        }
+
+        .error-message.active {
+            display: block;
+        }
+
+        @media (max-width: 768px) {
+            .chart-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .metrics-overview {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🧠 CL1 LLM Encoder - Results Dashboard</h1>
+            <p class="subtitle">Interactive visualization of neural-LLM integration experiments</p>
+        </header>
+
+        <div class="file-input-section" id="dropZone">
+            <input type="file" id="fileInput" accept=".h5,.hdf5">
+            <label for="fileInput">📁 Choose HDF5 File</label>
+            <p style="margin-top: 12px; color: var(--text-secondary);">or drag and drop</p>
+            <p class="file-info" id="fileInfo"></p>
+            <div class="error-message" id="errorMessage"></div>
+        </div>
+
+        <div class="loading" id="loading">
+            <div class="spinner"></div>
+            <p>Loading and analyzing experiment data...</p>
+        </div>
+
+        <div class="dashboard" id="dashboard">
+            <div class="tabs">
+                <button class="tab active" data-tab="overview">Overview</button>
+                <button class="tab" data-tab="consciousness">Consciousness Metrics</button>
+                <button class="tab" data-tab="spikes">Spike Analysis</button>
+                <button class="tab" data-tab="overrides">Override Analysis</button>
+                <button class="tab" data-tab="trajectories">Trajectories</button>
+            </div>
+
+            <!-- Overview Tab -->
+            <div id="overview" class="tab-content active">
+                <div class="metrics-overview">
+                    <div class="metric-card">
+                        <div class="metric-label">Total Runs</div>
+                        <div class="metric-value" id="totalRuns">-</div>
+                        <div class="metric-delta" id="runsBreakdown"></div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Total Tokens</div>
+                        <div class="metric-value" id="totalTokens">-</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Avg C-Score</div>
+                        <div class="metric-value" id="avgCScore">-</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-label">Avg Override Rate</div>
+                        <div class="metric-value" id="avgOverride">-</div>
+                    </div>
+                </div>
+
+                <div class="chart-grid">
+                    <div class="chart-card">
+                        <h3 class="chart-title">Condition Comparison - Key Metrics</h3>
+                        <div class="condition-legend">
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #58a6ff;"></div>
+                                <span>LLM-only</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #3fb950;"></div>
+                                <span>Bio-LLM</span>
+                            </div>
+                            <div class="legend-item">
+                                <div class="legend-color" style="background: #d29922;"></div>
+                                <span>Shadow-LLM</span>
+                            </div>
+                        </div>
+                        <div class="chart-container" id="conditionComparison"></div>
+                    </div>
+
+                    <div class="chart-card">
+                        <h3 class="chart-title">Override Rate by Condition</h3>
+                        <div class="chart-container" id="overrideBar"></div>
+                    </div>
+
+                    <div class="chart-card full-width">
+                        <h3 class="chart-title">Statistical Summary</h3>
+                        <table class="stats-table" id="statsTable">
+                            <thead>
+                                <tr>
+                                    <th>Metric</th>
+                                    <th>LLM-only</th>
+                                    <th>Bio-LLM</th>
+                                    <th>Shadow-LLM</th>
+                                    <th>Bio vs Shadow (p-value)</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Consciousness Metrics Tab -->
+            <div id="consciousness" class="tab-content">
+                <div class="chart-grid">
+                    <div class="chart-card">
+                        <h3 class="chart-title">C-Score Distribution</h3>
+                        <div class="chart-container" id="cscoreDist"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">C-Score Components</h3>
+                        <div class="chart-container" id="cscoreComponents"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">Transfer Entropy</h3>
+                        <div class="chart-container" id="transferEntropy"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">Temporal Depth</h3>
+                        <div class="chart-container" id="temporalDepth"></div>
+                    </div>
+                    <div class="chart-card full-width">
+                        <h3 class="chart-title">Lempel-Ziv Complexity</h3>
+                        <div class="chart-container" id="lzc"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Spike Analysis Tab -->
+            <div id="spikes" class="tab-content">
+                <div class="chart-grid">
+                    <div class="chart-card">
+                        <h3 class="chart-title">Total Spikes per Token</h3>
+                        <div class="chart-container" id="spikesPerToken"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">Channel Entropy</h3>
+                        <div class="chart-container" id="channelEntropy"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">Fano Factor Distribution</h3>
+                        <div class="chart-container" id="fanoFactor"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">Active Channels</h3>
+                        <div class="chart-container" id="activeChannels"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Override Analysis Tab -->
+            <div id="overrides" class="tab-content">
+                <div class="chart-grid">
+                    <div class="chart-card full-width">
+                        <h3 class="chart-title">Override Timeline</h3>
+                        <div class="chart-container" id="overrideTimeline"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">Override Rate by Prompt</h3>
+                        <div class="chart-container" id="overrideByPrompt"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">Neural vs LLM Probability</h3>
+                        <div class="chart-container" id="neuralVsLlm"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Trajectories Tab -->
+            <div id="trajectories" class="tab-content">
+                <div class="chart-grid">
+                    <div class="chart-card full-width">
+                        <h3 class="chart-title">C-Score Trajectory Over Tokens</h3>
+                        <div class="chart-container" id="cscoreTrajectory"></div>
+                    </div>
+                    <div class="chart-card full-width">
+                        <h3 class="chart-title">Learning Curve Analysis</h3>
+                        <div class="chart-container" id="learningCurve"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">C-Score vs Entropy Correlation</h3>
+                        <div class="chart-container" id="cscoreEntropyCorr"></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3 class="chart-title">Closure vs Lambda2</h3>
+                        <div class="chart-container" id="closureLambda2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State
+        let h5Data = null;
+        let experimentData = null;
+
+        // Colors
+        const COLORS = {
+            llm_only: '#58a6ff',
+            bio_llm: '#3fb950',
+            shadow_llm: '#d29922'
+        };
+
+        // File input handling
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const errorMessage = document.getElementById('errorMessage');
+        const loading = document.getElementById('loading');
+        const dashboard = document.getElementById('dashboard');
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                loadFile(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                loadFile(e.target.files[0]);
+            }
+        });
+
+        async function loadFile(file) {
+            errorMessage.classList.remove('active');
+            fileInfo.innerHTML = `Loading <span class="file-name">${file.name}</span>...`;
+            
+            try {
+                loading.classList.add('active');
+                dashboard.classList.remove('active');
+
+                const arrayBuffer = await file.arrayBuffer();
+                const h5 = await h5wasm.h5wasm_module();
+                const file_obj = new h5wasm.File(arrayBuffer);
+                
+                experimentData = await parseHDF5(file_obj);
+                
+                fileInfo.innerHTML = `Loaded <span class="file-name">${file.name}</span> - ${experimentData.totalRuns} runs, ${experimentData.totalTokens} tokens`;
+                loading.classList.remove('active');
+                dashboard.classList.add('active');
+                
+                renderAllCharts();
+            } catch (error) {
+                loading.classList.remove('active');
+                errorMessage.textContent = `Error loading file: ${error.message}`;
+                errorMessage.classList.add('active');
+                fileInfo.innerHTML = '';
+            }
+        }
+
+        async function parseHDF5(file_obj) {
+            const data = {
+                conditions: {},
+                metadata: {},
+                totalRuns: 0,
+                totalTokens: 0
+            };
+
+            // Get metadata
+            const attrs = file_obj.attrs;
+            for (let key of attrs.keys()) {
+                try {
+                    data.metadata[key] = attrs.get(key);
+                } catch (e) {}
+            }
+
+            // Parse conditions
+            const conditionsGroup = file_obj.get('conditions');
+            const conditionNames = conditionsGroup.attrs.keys ? Array.from(conditionsGroup.attrs.keys()) : 
+                                   ['llm_only', 'bio_llm', 'shadow_llm'];
+
+            for (const cond of conditionNames) {
+                try {
+                    const condGroup = conditionsGroup.get(cond);
+                    if (!condGroup) continue;
+
+                    data.conditions[cond] = {
+                        runs: [],
+                        metrics: {
+                            cscore: [],
+                            override_rate: [],
+                            transfer_entropy: [],
+                            temporal_depth: [],
+                            lzc: [],
+                            closure: [],
+                            lambda2_norm: [],
+                            rho: [],
+                            total_spikes: [],
+                            channel_entropy: [],
+                            fano_factor: [],
+                            active_channels: []
+                        }
+                    };
+
+                    // Get all run groups
+                    const runKeys = condGroup.attrs.keys ? Array.from(condGroup.attrs.keys()) : [];
+                    
+                    for (const runKey of runKeys) {
+                        if (!runKey.startsWith('run_')) continue;
+                        
+                        const runGroup = condGroup.get(runKey);
+                        if (!runGroup) continue;
+
+                        const runData = {
+                            id: runKey,
+                            prompt: runGroup.attrs.get('prompt') || '',
+                            n_tokens: runGroup.attrs.get('n_tokens') || 0,
+                            override_rate: runGroup.attrs.get('override_rate') || 0,
+                            generated_text: runGroup.attrs.get('generated_text') || ''
+                        };
+
+                        // Load token-level data
+                        try {
+                            const overrides = runGroup.get('overrides');
+                            const tokenIds = runGroup.get('token_ids');
+                            const totalSpikes = runGroup.get('total_spikes');
+                            const channelEntropy = runGroup.get('channel_entropy');
+
+                            if (overrides) runData.overrides = Array.from(overrides.value);
+                            if (tokenIds) runData.token_ids = Array.from(tokenIds.value);
+                            if (totalSpikes) runData.total_spikes = Array.from(totalSpikes.value);
+                            if (channelEntropy) runData.channel_entropy = Array.from(channelEntropy.value);
+
+                            data.totalTokens += runData.n_tokens;
+                        } catch (e) {}
+
+                        // Load consciousness metrics
+                        try {
+                            const csGroup = runGroup.get('consciousness_metrics');
+                            if (csGroup) {
+                                const csData = csGroup.value;
+                                const columns = csGroup.attrs.get('columns') || [];
+                                
+                                for (let i = 0; i < csData.length; i++) {
+                                    const row = csData[i];
+                                    columns.forEach((col, idx) => {
+                                        const metricName = mapMetricName(col);
+                                        if (metricName && data.conditions[cond].metrics[metricName]) {
+                                            data.conditions[cond].metrics[metricName].push(row[idx]);
+                                        }
+                                    });
+                                }
+                            }
+                        } catch (e) {}
+
+                        // Load summary metrics from attrs
+                        const summaryMetrics = ['mean_cscore', 'mean_transfer_entropy', 'mean_temporal_depth',
+                                               'mean_lzc', 'mean_closure', 'mean_lambda2_norm', 'mean_rho',
+                                               'mean_fano_factor', 'mean_channel_entropy'];
+                        
+                        summaryMetrics.forEach(metric => {
+                            try {
+                                const val = runGroup.attrs.get(metric);
+                                if (val !== undefined && val !== null) {
+                                    const metricName = mapMetricName(metric);
+                                    if (metricName && data.conditions[cond].metrics[metricName]) {
+                                        data.conditions[cond].metrics[metricName].push(val);
+                                    }
+                                }
+                            } catch (e) {}
+                        });
+
+                        data.conditions[cond].runs.push(runData);
+                        data.totalRuns++;
+                    }
+                } catch (e) {
+                    console.warn(`Error parsing condition ${cond}:`, e);
+                }
+            }
+
+            return data;
+        }
+
+        function mapMetricName(name) {
+            const mapping = {
+                'cscore': 'cscore',
+                'mean_cscore': 'cscore',
+                'closure': 'closure',
+                'mean_closure': 'closure',
+                'lambda2_norm': 'lambda2_norm',
+                'mean_lambda2_norm': 'lambda2_norm',
+                'rho': 'rho',
+                'mean_rho': 'rho',
+                'lzc': 'lzc',
+                'mean_lzc': 'lzc',
+                'transfer_entropy': 'transfer_entropy',
+                'mean_transfer_entropy': 'transfer_entropy',
+                'temporal_depth': 'temporal_depth',
+                'mean_temporal_depth': 'temporal_depth',
+                'granger_density': 'granger_density',
+                'fano_factor': 'fano_factor',
+                'mean_fano_factor': 'fano_factor',
+                'channel_entropy': 'channel_entropy',
+                'mean_channel_entropy': 'channel_entropy',
+                'sync_index': 'sync_index',
+                'active_channels': 'active_channels'
+            };
+            return mapping[name] || null;
+        }
+
+        function renderAllCharts() {
+            renderOverview();
+            renderConsciousness();
+            renderSpikes();
+            renderOverrides();
+            renderTrajectories();
+        }
+
+        function computeStats(values) {
+            if (!values || values.length === 0) return { mean: 0, std: 0, median: 0 };
+            const n = values.length;
+            const mean = values.reduce((a, b) => a + b, 0) / n;
+            const variance = values.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / n;
+            const std = Math.sqrt(variance);
+            const sorted = [...values].sort((a, b) => a - b);
+            const median = sorted[Math.floor(n / 2)];
+            return { mean, std, median };
+        }
+
+        function mannWhitneyU(x, y) {
+            // Simplified U test approximation
+            const n1 = x.length, n2 = y.length;
+            if (n1 < 3 || n2 < 3) return { U: 0, p: 1.0 };
+            
+            const all = x.map(v => ({ v, g: 1 })).concat(y.map(v => ({ v, g: 2 })));
+            all.sort((a, b) => a.v - b.v);
+            
+            let rank = 1;
+            for (let i = 0; i < all.length; i++) {
+                all[i].rank = rank++;
+            }
+            
+            const R1 = all.filter(d => d.g === 1).reduce((a, b) => a + b.rank, 0);
+            const U1 = R1 - n1 * (n1 + 1) / 2;
+            const U2 = n1 * n2 - U1;
+            const U = Math.min(U1, U2);
+            
+            // Normal approximation for p-value
+            const mu = n1 * n2 / 2;
+            const sigma = Math.sqrt(n1 * n2 * (n1 + n2 + 1) / 12);
+            const z = (U - mu) / sigma;
+            const p = 2 * (1 - normalCDF(Math.abs(z)));
+            
+            return { U, p };
+        }
+
+        function normalCDF(x) {
+            return 0.5 * (1 + Math.erf(x / Math.sqrt(2)));
+        }
+
+        function cohensD(x, y) {
+            const nx = x.length, ny = y.length;
+            const mx = x.reduce((a, b) => a + b, 0) / nx;
+            const my = y.reduce((a, b) => a + b, 0) / ny;
+            
+            const vx = x.reduce((a, b) => a + Math.pow(b - mx, 2), 0) / nx;
+            const vy = y.reduce((a, b) => a + Math.pow(b - my, 2), 0) / ny;
+            
+            const pooledStd = Math.sqrt(((nx - 1) * vx + (ny - 1) * vy) / (nx + ny - 2));
+            
+            if (pooledStd === 0) return 0;
+            return (mx - my) / pooledStd;
+        }
+
+        // Render functions for each tab
+        function renderOverview() {
+            const { conditions } = experimentData;
+            
+            document.getElementById('totalRuns').textContent = experimentData.totalRuns;
+            document.getElementById('totalTokens').textContent = experimentData.totalTokens.toLocaleString();
+            
+            const allCScores = Object.values(conditions).flatMap(c => c.metrics.cscore);
+            document.getElementById('avgCScore').textContent = computeStats(allCScores).mean.toFixed(3);
+            
+            const allOverrides = Object.values(conditions).flatMap(c => c.metrics.override_rate);
+            document.getElementById('avgOverride').textContent = (computeStats(allOverrides).mean * 100).toFixed(1) + '%';
+
+            // Condition comparison bar chart
+            const metrics = ['cscore', 'transfer_entropy', 'temporal_depth', 'lzc'];
+            const metricLabels = ['C-Score', 'Transfer Entropy', 'Temporal Depth', 'LZ Complexity'];
+            
+            const traces = metrics.map((metric, i) => ({
+                x: ['LLM-only', 'Bio-LLM', 'Shadow-LLM'],
+                y: [
+                    computeStats(conditions.llm_only?.metrics[metric] || []).mean,
+                    computeStats(conditions.bio_llm?.metrics[metric] || []).mean,
+                    computeStats(conditions.shadow_llm?.metrics[metric] || []).mean
+                ],
+                name: metricLabels[i],
+                type: 'bar',
+                marker: { color: COLORS.llm_only }
+            }));
+
+            Plotly.newPlot('conditionComparison', traces, {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#8b949e' },
+                yaxis: { gridcolor: '#30363d' },
+                xaxis: { gridcolor: '#30363d' },
+                barmode: 'group',
+                margin: { t: 20, l: 60, r: 20, b: 40 },
+                showlegend: true
+            }, { responsive: true, displayModeBar: false });
+
+            // Override rate bar chart
+            const overrideRates = ['llm_only', 'bio_llm', 'shadow_llm'].map(cond => 
+                computeStats(conditions[cond]?.metrics.override_rate || []).mean * 100
+            );
+
+            Plotly.newPlot('overrideBar', [{
+                x: ['LLM-only', 'Bio-LLM', 'Shadow-LLM'],
+                y: overrideRates,
+                type: 'bar',
+                marker: { 
+                    color: [COLORS.llm_only, COLORS.bio_llm, COLORS.shadow_llm]
+                }
+            }], {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#8b949e' },
+                yaxis: { title: 'Override Rate (%)', gridcolor: '#30363d' },
+                xaxis: { gridcolor: '#30363d' },
+                margin: { t: 20, l: 60, r: 20, b: 60 },
+                showlegend: false
+            }, { responsive: true, displayModeBar: false });
+
+            // Stats table
+            const tableBody = document.querySelector('#statsTable tbody');
+            const statsMetrics = [
+                { key: 'cscore', label: 'C-Score' },
+                { key: 'override_rate', label: 'Override Rate' },
+                { key: 'transfer_entropy', label: 'Transfer Entropy' },
+                { key: 'temporal_depth', label: 'Temporal Depth' },
+                { key: 'lzc', label: 'LZ Complexity' }
+            ];
+
+            tableBody.innerHTML = statsMetrics.map(m => {
+                const llm = computeStats(conditions.llm_only?.metrics[m.key] || []);
+                const bio = computeStats(conditions.bio_llm?.metrics[m.key] || []);
+                const shadow = computeStats(conditions.shadow_llm?.metrics[m.key] || []);
+                
+                const test = mannWhitneyU(
+                    conditions.bio_llm?.metrics[m.key] || [],
+                    conditions.shadow_llm?.metrics[m.key] || []
+                );
+                const d = cohensD(
+                    conditions.bio_llm?.metrics[m.key] || [],
+                    conditions.shadow_llm?.metrics[m.key] || []
+                );
+                
+                const sigClass = test.p < 0.05 ? 'sig' : 'ns';
+                const sigText = test.p < 0.05 ? `p=${test.p.toFixed(4)}, d=${d.toFixed(2)}` : 'n.s.';
+
+                return `<tr>
+                    <td>${m.label}</td>
+                    <td>${llm.mean.toFixed(4)} ± ${llm.std.toFixed(3)}</td>
+                    <td>${bio.mean.toFixed(4)} ± ${bio.std.toFixed(3)}</td>
+                    <td>${shadow.mean.toFixed(4)} ± ${shadow.std.toFixed(3)}</td>
+                    <td><span class="significance ${sigClass}">${sigText}</span></td>
+                </tr>`;
+            }).join('');
+        }
+
+        function renderConsciousness() {
+            const { conditions } = experimentData;
+
+            // C-Score distribution (violin/box)
+            ['cscore', 'cscoreComponents', 'transferEntropy', 'temporalDepth', 'lzc'].forEach(id => {
+                const metricMap = {
+                    'cscore': 'cscore',
+                    'cscoreComponents': ['closure', 'lambda2_norm', 'rho'],
+                    'transferEntropy': 'transfer_entropy',
+                    'temporalDepth': 'temporal_depth',
+                    'lzc': 'lzc'
+                };
+
+                const metric = metricMap[id];
+                const data = [];
+                
+                if (Array.isArray(metric)) {
+                    metric.forEach((m, i) => {
+                        ['llm_only', 'bio_llm', 'shadow_llm'].forEach((cond, j) => {
+                            const values = conditions[cond]?.metrics[m] || [];
+                            data.push({
+                                y: values,
+                                type: 'box',
+                                name: `${cond} - ${m}`,
+                                marker: { color: [COLORS.llm_only, COLORS.bio_llm, COLORS.shadow_llm][j] }
+                            });
+                        });
+                    });
+                } else {
+                    ['llm_only', 'bio_llm', 'shadow_llm'].forEach((cond, i) => {
+                        const values = conditions[cond]?.metrics[metric] || [];
+                        data.push({
+                            y: values,
+                            type: 'box',
+                            name: cond.replace('_', '-').replace(/\b\w/g, l => l.toUpperCase()),
+                            marker: { color: [COLORS.llm_only, COLORS.bio_llm, COLORS.shadow_llm][i] }
+                        });
+                    });
+                }
+
+                Plotly.newPlot(id, data, {
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    font: { color: '#8b949e' },
+                    yaxis: { gridcolor: '#30363d' },
+                    xaxis: { gridcolor: '#30363d' },
+                    margin: { t: 20, l: 60, r: 20, b: 60 },
+                    showlegend: id === 'cscoreComponents'
+                }, { responsive: true, displayModeBar: false });
+            });
+        }
+
+        function renderSpikes() {
+            const { conditions } = experimentData;
+            
+            ['spikesPerToken', 'channelEntropy', 'fanoFactor', 'activeChannels'].forEach(id => {
+                const metricMap = {
+                    'spikesPerToken': 'total_spikes',
+                    'channelEntropy': 'channel_entropy',
+                    'fanoFactor': 'fano_factor',
+                    'activeChannels': 'active_channels'
+                };
+
+                const metric = metricMap[id];
+                const data = [];
+
+                ['llm_only', 'bio_llm', 'shadow_llm'].forEach((cond, i) => {
+                    const values = conditions[cond]?.metrics[metric] || [];
+                    data.push({
+                        y: values,
+                        type: 'violin',
+                        name: cond.replace('_', '-').replace(/\b\w/g, l => l.toUpperCase()),
+                        line: { color: [COLORS.llm_only, COLORS.bio_llm, COLORS.shadow_llm][i] }
+                    });
+                });
+
+                Plotly.newPlot(id, data, {
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    font: { color: '#8b949e' },
+                    yaxis: { gridcolor: '#30363d' },
+                    xaxis: { gridcolor: '#30363d' },
+                    margin: { t: 20, l: 60, r: 20, b: 60 },
+                    showlegend: false
+                }, { responsive: true, displayModeBar: false });
+            });
+        }
+
+        function renderOverrides() {
+            const { conditions } = experimentData;
+            
+            // Override timeline
+            const timelineData = [];
+            ['llm_only', 'bio_llm', 'shadow_llm'].forEach((cond, i) => {
+                const runs = conditions[cond]?.runs || [];
+                const overrides = runs.flatMap(r => r.overrides || []);
+                timelineData.push({
+                    y: overrides.map((v, j) => v ? 1 : 0),
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: cond.replace('_', '-').replace(/\b\w/g, l => l.toUpperCase()),
+                    marker: { 
+                        color: [COLORS.llm_only, COLORS.bio_llm, COLORS.shadow_llm][i],
+                        size: 4
+                    }
+                });
+            });
+
+            Plotly.newPlot('overrideTimeline', timelineData, {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#8b949e' },
+                yaxis: { title: 'Override', range: [-0.1, 1.1], gridcolor: '#30363d' },
+                xaxis: { title: 'Token Index', gridcolor: '#30363d' },
+                margin: { t: 20, l: 60, r: 20, b: 60 },
+                showlegend: true
+            }, { responsive: true, displayModeBar: false });
+
+            // Override by prompt
+            const promptOverrides = {};
+            ['llm_only', 'bio_llm', 'shadow_llm'].forEach(cond => {
+                const runs = conditions[cond]?.runs || [];
+                runs.forEach(run => {
+                    const prompt = run.prompt || 'Unknown';
+                    if (!promptOverrides[prompt]) promptOverrides[prompt] = {};
+                    promptOverrides[prompt][cond] = run.override_rate || 0;
+                });
+            });
+
+            Plotly.newPlot('overrideByPrompt', [{
+                x: Object.keys(promptOverrides),
+                y: Object.values(promptOverrides).map(v => (v.bio_llm || 0) * 100),
+                type: 'bar',
+                marker: { color: COLORS.bio_llm }
+            }], {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#8b949e' },
+                yaxis: { title: 'Override Rate (%)', gridcolor: '#30363d' },
+                xaxis: { title: 'Prompt', tickangle: -45, gridcolor: '#30363d' },
+                margin: { t: 20, l: 60, r: 20, b: 100 },
+                showlegend: false
+            }, { responsive: true, displayModeBar: false });
+
+            // Neural vs LLM (placeholder - would need more detailed data)
+            Plotly.newPlot('neuralVsLlm', [{
+                x: [1, 2, 3, 4, 5],
+                y: [0.3, 0.5, 0.4, 0.6, 0.5],
+                type: 'scatter',
+                mode: 'lines+markers',
+                name: 'Neural Prob'
+            }, {
+                x: [1, 2, 3, 4, 5],
+                y: [0.4, 0.45, 0.5, 0.4, 0.45],
+                type: 'scatter',
+                mode: 'lines+markers',
+                name: 'LLM Prob'
+            }], {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#8b949e' },
+                yaxis: { title: 'Probability', gridcolor: '#30363d' },
+                xaxis: { title: 'Token', gridcolor: '#30363d' },
+                margin: { t: 20, l: 60, r: 20, b: 60 }
+            }, { responsive: true, displayModeBar: false });
+        }
+
+        function renderTrajectories() {
+            const { conditions } = experimentData;
+
+            // C-Score trajectory
+            const trajectoryData = [];
+            ['llm_only', 'bio_llm', 'shadow_llm'].forEach((cond, i) => {
+                const values = conditions[cond]?.metrics.cscore || [];
+                const windowSize = 10;
+                const smoothed = [];
+                for (let j = 0; j < values.length; j += windowSize) {
+                    const chunk = values.slice(j, j + windowSize);
+                    smoothed.push(chunk.reduce((a, b) => a + b, 0) / chunk.length);
+                }
+                trajectoryData.push({
+                    y: smoothed,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: cond.replace('_', '-').replace(/\b\w/g, l => l.toUpperCase()),
+                    line: { color: [COLORS.llm_only, COLORS.bio_llm, COLORS.shadow_llm][i], width: 2 }
+                });
+            });
+
+            Plotly.newPlot('cscoreTrajectory', trajectoryData, {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#8b949e' },
+                yaxis: { title: 'C-Score (smoothed)', gridcolor: '#30363d' },
+                xaxis: { title: 'Token Block', gridcolor: '#30363d' },
+                margin: { t: 20, l: 60, r: 20, b: 60 }
+            }, { responsive: true, displayModeBar: false });
+
+            // Learning curve (aggregate by run order)
+            const learningData = [];
+            ['llm_only', 'bio_llm', 'shadow_llm'].forEach((cond, i) => {
+                const runs = conditions[cond]?.runs || [];
+                const cscores = runs.map(r => {
+                    const idx = Object.keys(conditions).indexOf(cond) * 100 + runs.indexOf(r);
+                    return { idx, cscore: r.override_rate };
+                });
+                
+                learningData.push({
+                    x: cscores.map(c => c.idx),
+                    y: cscores.map(c => c.cscore),
+                    type: 'scatter',
+                    mode: 'markers',
+                    name: cond.replace('_', '-').replace(/\b\w/g, l => l.toUpperCase()),
+                    marker: { color: [COLORS.llm_only, COLORS.bio_llm, COLORS.shadow_llm][i], size: 6 }
+                });
+            });
+
+            Plotly.newPlot('learningCurve', learningData, {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#8b949e' },
+                yaxis: { title: 'Override Rate', gridcolor: '#30363d' },
+                xaxis: { title: 'Run Index', gridcolor: '#30363d' },
+                margin: { t: 20, l: 60, r: 20, b: 60 }
+            }, { responsive: true, displayModeBar: false });
+
+            // Correlation plots
+            const cscores = conditions.bio_llm?.metrics.cscore || [];
+            const entropies = conditions.bio_llm?.metrics.channel_entropy || [];
+            
+            Plotly.newPlot('cscoreEntropyCorr', [{
+                x: cscores.slice(0, 500),
+                y: entropies.slice(0, 500),
+                type: 'scatter',
+                mode: 'markers',
+                marker: { color: COLORS.bio_llm, size: 4, opacity: 0.5 }
+            }], {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#8b949e' },
+                yaxis: { title: 'Channel Entropy', gridcolor: '#30363d' },
+                xaxis: { title: 'C-Score', gridcolor: '#30363d' },
+                margin: { t: 20, l: 60, r: 20, b: 60 },
+                showlegend: false
+            }, { responsive: true, displayModeBar: false });
+
+            const closures = conditions.bio_llm?.metrics.closure || [];
+            const lambda2s = conditions.bio_llm?.metrics.lambda2_norm || [];
+
+            Plotly.newPlot('closureLambda2', [{
+                x: closures.slice(0, 500),
+                y: lambda2s.slice(0, 500),
+                type: 'scatter',
+                mode: 'markers',
+                marker: { color: COLORS.bio_llm, size: 4, opacity: 0.5 }
+            }], {
+                paper_bgcolor: 'rgba(0,0,0,0)',
+                plot_bgcolor: 'rgba(0,0,0,0)',
+                font: { color: '#8b949e' },
+                yaxis: { title: 'Lambda2 (normalized)', gridcolor: '#30363d' },
+                xaxis: { title: 'Closure', gridcolor: '#30363d' },
+                margin: { t: 20, l: 60, r: 20, b: 60 },
+                showlegend: false
+            }, { responsive: true, displayModeBar: false });
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+                
+                tab.classList.add('active');
+                document.getElementById(tab.dataset.tab).classList.add('active');
+                
+                // Resize plots when tab becomes visible
+                setTimeout(() => {
+                    window.dispatchEvent(new Event('resize'));
+                }, 100);
+            });
+        });
+    </script>
+</body>
+</html>
